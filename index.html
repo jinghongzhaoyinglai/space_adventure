@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛸 星际猎手 - 无无敌版</title>
+    <style>
+        :root { --bg: #000010; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg); overflow: hidden;
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            cursor: none; user-select: none; -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent; touch-action: none;
+            height: 100vh; width: 100vw; display: flex; align-items: center; justify-content: center;
+        }
+        canvas { display: block; position: absolute; top: 0; left: 0; }
+        #mobile-hint {
+            display: none; position: absolute; bottom: 40px; width: 100%; text-align: center;
+            color: rgba(255,255,255,0.5); font-size: 14px; letter-spacing: 2px; pointer-events: none;
+        }
+        @media (max-width: 768px) {
+            #mobile-hint { display: block; }
+            body { cursor: none; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="mobile-hint">👆 滑动屏幕操控飞船</div>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+
+            let W, H;
+            function resizeCanvas() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
+            }
+            resizeCanvas();
+            window.addEventListener('resize', () => { resizeCanvas(); initStars(); });
+
+            // ================== 输入控制 ==================
+            let mouseX = W / 2, mouseY = H * 0.7, mouseOnCanvas = false;
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX; mouseY = e.clientY; mouseOnCanvas = true;
+            });
+            canvas.addEventListener('mouseenter', () => { mouseOnCanvas = true; });
+            canvas.addEventListener('mouseleave', () => { mouseOnCanvas = false; });
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const t = e.touches[0];
+                mouseX = t.clientX; mouseY = t.clientY - 55; mouseOnCanvas = true;
+            }, { passive: false });
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const t = e.touches[0];
+                mouseX = t.clientX; mouseY = t.clientY - 55; mouseOnCanvas = true;
+            }, { passive: false });
+            canvas.addEventListener('touchend', () => { mouseOnCanvas = false; });
+
+            // ================== 星空 ==================
+            let stars = [];
+            function initStars() {
+                stars = [];
+                for (let layer = 0; layer < 3; layer++) {
+                    const count = Math.floor((W * H) / (8000 / (layer + 1)));
+                    for (let i = 0; i < count; i++) {
+                        stars.push({
+                            x: Math.random() * W,
+                            y: Math.random() * H,
+                            r: Math.random() * (1.2 + layer * 0.6) + 0.3,
+                            speed: 0.3 + layer * 0.7 + Math.random() * 1.2,
+                            twinkle: Math.random() * Math.PI * 2,
+                            twinkleSpeed: 0.01 + Math.random() * 0.04,
+                            hue: 200 + Math.random() * 40,
+                            alpha: 0.4 + Math.random() * 0.6,
+                        });
+                    }
+                }
+            }
+            initStars();
+
+            function updateStars(dt) {
+                for (const s of stars) {
+                    s.y += s.speed * dt * 60;
+                    s.twinkle += s.twinkleSpeed * dt * 60;
+                    if (s.y > H + 5) { s.y = -5; s.x = Math.random() * W; }
+                }
+            }
+
+            function drawStars() {
+                for (const s of stars) {
+                    const flicker = 0.6 + 0.4 * Math.sin(s.twinkle);
+                    const alpha = s.alpha * flicker;
+                    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${s.hue}, 60%, 80%, ${alpha})`;
+                    ctx.fill();
+                    if (s.r > 1.5 && flicker > 0.85) {
+                        ctx.beginPath(); ctx.arc(s.x, s.y, s.r * 2.5, 0, Math.PI * 2);
+                        ctx.fillStyle = `hsla(${s.hue}, 80%, 85%, ${alpha * 0.25})`;
+                        ctx.fill();
+                    }
+                }
+            }
+
+            // ================== 粒子 ==================
+            let particles = [];
+            function spawnParticles(x, y, count, hue, speedRange, lifeRange, sizeRange) {
+                for (let i = 0; i < count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = speedRange[0] + Math.random() * (speedRange[1] - speedRange[0]);
+                    const life = lifeRange[0] + Math.random() * (lifeRange[1] - lifeRange[0]);
+                    const size = sizeRange[0] + Math.random() * (sizeRange[1] - sizeRange[0]);
+                    particles.push({
+                        x, y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        life, maxLife: life,
+                        hue: hue + (Math.random() - 0.5) * 30,
+                        size,
+                        decay: 0.96 + Math.random() * 0.03,
+                    });
+                }
+                if (particles.length > 400) particles.splice(0, particles.length - 400);
+            }
+
+            function updateParticles(dt) {
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    p.life -= dt;
+                    p.x += p.vx * dt * 60;
+                    p.y += p.vy * dt * 60;
+                    p.vx *= p.decay;
+                    p.vy *= p.decay;
+                    p.size *= 0.995;
+                    if (p.life <= 0) particles.splice(i, 1);
+                }
+            }
+
+            function drawParticles() {
+                for (const p of particles) {
+                    const alpha = Math.max(0, p.life / p.maxLife);
+                    const sat = 80 + alpha * 20;
+                    const light = 40 + alpha * 40;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${p.hue}, ${sat}%, ${light}%, ${alpha})`;
+                    ctx.fill();
+                    if (p.size > 2) {
+                        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 2.2, 0, Math.PI * 2);
+                        ctx.fillStyle = `hsla(${p.hue}, 90%, 60%, ${alpha * 0.3})`;
+                        ctx.fill();
+                    }
+                }
+            }
+
+            // ================== 屏幕震动 ==================
+            let shakeAmount = 0, shakeDuration = 0, shakeX = 0, shakeY = 0;
+            function triggerShake(amount, duration) {
+                shakeAmount = Math.max(shakeAmount, amount);
+                shakeDuration = Math.max(shakeDuration, duration);
+            }
+            function updateShake(dt) {
+                if (shakeDuration > 0) {
+                    shakeDuration -= dt;
+                    shakeX = (Math.random() - 0.5) * 2 * shakeAmount;
+                    shakeY = (Math.random() - 0.5) * 2 * shakeAmount;
+                    shakeAmount *= 0.85;
+                    if (shakeDuration <= 0) { shakeX = shakeY = shakeAmount = 0; }
+                }
+            }
+
+            // ================== 游戏状态 ==================
+            const STATE = { MENU: 'menu', PLAYING: 'playing', GAMEOVER: 'gameover' };
+            let gameState = STATE.MENU;
+            let score = 0;
+            let highScore = parseInt(localStorage.getItem('starHunterHighScore') || '0');
+            let comboCount = 0, comboTimer = 0, maxCombo = 0;
+            let difficultyLevel = 1, difficultyTimer = 0, gameTime = 0;
+            let flashAlpha = 0;
+
+            // 玩家属性 - 已移除 invincible
+            let player = {
+                x: W / 2, y: H * 0.7,
+                targetX: W / 2, targetY: H * 0.7,
+                width: 36, height: 44,
+                lives: 5, maxLives: 5,
+                shieldActive: false,
+                tripleShot: false, tripleShotTimer: 0,
+                rapidFire: false, rapidFireTimer: 0,
+                fireCooldown: 0,
+                baseFireRate: 0.16,
+                engineFlame: 0,
+            };
+
+            let bullets = [];
+            let enemies = [];
+            let powerUps = [];
+            let floatingTexts = [];
+
+            function resetPlayer() {
+                player.x = W / 2; player.y = H * 0.7;
+                player.targetX = W / 2; player.targetY = H * 0.7;
+                player.lives = 5;
+                player.shieldActive = false;
+                player.tripleShot = false; player.tripleShotTimer = 0;
+                player.rapidFire = false; player.rapidFireTimer = 0;
+                player.fireCooldown = 0;
+                player.engineFlame = 0;
+            }
+
+            function resetGame() {
+                score = 0; comboCount = 0; comboTimer = 0; maxCombo = 0;
+                difficultyLevel = 1; difficultyTimer = 0; gameTime = 0;
+                flashAlpha = 0;
+                bullets = []; enemies = []; powerUps = []; particles = []; floatingTexts = [];
+                shakeAmount = 0; shakeDuration = 0; shakeX = 0; shakeY = 0;
+                resetPlayer();
+            }
+
+            // ================== 子弹 ==================
+            function fireBullet(angleOffset = 0) {
+                const speed = 30;
+                const radians = (-Math.PI / 2) + angleOffset;
+                bullets.push({
+                    x: player.x + Math.cos(radians) * 16,
+                    y: player.y - 18 + Math.sin(radians) * 16,
+                    vx: Math.cos(radians) * speed,
+                    vy: Math.sin(radians) * speed,
+                    radius: 4.5,
+                    hue: 48,
+                });
+                spawnParticles(player.x, player.y - 20, 2, 50, [0.5, 1.5], [0.05, 0.15], [1.5, 3]);
+            }
+
+            function handleShooting(dt) {
+                player.fireCooldown -= dt;
+                const fireRate = player.rapidFire ? player.baseFireRate * 0.5 : player.baseFireRate;
+                if (player.fireCooldown <= 0 && gameState === STATE.PLAYING) {
+                    player.fireCooldown = fireRate;
+                    if (player.tripleShot) {
+                        fireBullet(-0.22); fireBullet(0); fireBullet(0.22);
+                    } else {
+                        fireBullet(0);
+                    }
+                }
+            }
+
+            // ================== 敌人 ==================
+            const ENEMY_TYPES = {
+                normal: { name: '普通', color: 0, radius: 14, speed: 1.2, hp: 1, score: 100, shape: 'diamond' },
+                fast: { name: '快速', color: 25, radius: 10, speed: 3.5, hp: 1, score: 180, shape: 'triangle' },
+                tank: { name: '重型', color: 340, radius: 22, speed: 0.7, hp: 3, score: 350, shape: 'hexagon' },
+                zigzag: { name: '蛇形', color: 160, radius: 13, speed: 1.8, hp: 1, score: 220, shape: 'star' },
+            };
+
+            function spawnEnemy() {
+                const roll = Math.random();
+                let typeKey;
+                if (difficultyLevel < 3) typeKey = roll < 0.7 ? 'normal' : roll < 0.9 ? 'fast' : 'zigzag';
+                else if (difficultyLevel < 6) typeKey = roll < 0.45 ? 'normal' : roll < 0.7 ? 'fast' : roll < 0.88 ? 'zigzag' : 'tank';
+                else typeKey = roll < 0.3 ? 'normal' : roll < 0.5 ? 'fast' : roll < 0.7 ? 'zigzag' : 'tank';
+                const type = ENEMY_TYPES[typeKey];
+                const margin = type.radius + 10;
+                enemies.push({
+                    x: margin + Math.random() * (W - margin * 2),
+                    y: -type.radius - Math.random() * 80,
+                    type: typeKey,
+                    ...type,
+                    hp: type.hp, maxHp: type.hp,
+                    wobbleAmp: typeKey === 'zigzag' ? 2.5 + Math.random() * 2 : 0,
+                    wobbleFreq: 0.03 + Math.random() * 0.04,
+                    wobbleOffset: Math.random() * Math.PI * 2,
+                });
+            }
+
+            function updateEnemies(dt) {
+                const spawnInterval = Math.max(0.25, 1.2 - difficultyLevel * 0.1);
+                difficultyTimer += dt;
+                if (difficultyTimer >= spawnInterval && gameState === STATE.PLAYING) {
+                    difficultyTimer -= spawnInterval;
+                    spawnEnemy();
+                    if (difficultyLevel >= 5 && Math.random() < 0.35) {
+                        setTimeout(() => { if (gameState === STATE.PLAYING) spawnEnemy(); }, 150);
+                    }
+                }
+
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const e = enemies[i];
+                    const speedMult = 1 + (difficultyLevel - 1) * 0.08;
+                    e.y += e.speed * speedMult * dt * 60;
+                    if (e.wobbleAmp > 0) e.x += Math.sin(gameTime * e.wobbleFreq * 60 + e.wobbleOffset) * e.wobbleAmp * dt * 60;
+
+                    // 敌人逃脱惩罚（无无敌，直接扣血）
+                    if (e.y > H + e.radius + 30) {
+                        if (gameState === STATE.PLAYING) {
+                            if (player.shieldActive) {
+                                player.shieldActive = false;
+                                spawnParticles(e.x, H, 20, 260, [2, 5], [0.3, 0.6], [2, 4]);
+                                addFloatingText(e.x, H - 20, '护盾破碎!', '#b388ff', 1.0);
+                            } else {
+                                player.lives--;
+                                comboCount = 0; comboTimer = 0;
+                                spawnParticles(e.x, H, 30, 0, [3, 7], [0.4, 0.8], [2, 6]);
+                                triggerShake(10, 0.4);
+                                flashAlpha = 0.5;
+                                addFloatingText(e.x, H - 20, '敌人逃脱!', '#ff6040', 1.2);
+                                if (player.lives <= 0) { enemies.splice(i, 1); endGame(); return; }
+                            }
+                        }
+                        enemies.splice(i, 1);
+                        if (comboCount > 0 && gameState === STATE.PLAYING) { comboCount = 0; comboTimer = 0; }
+                    }
+
+                    if (e.x < e.radius) e.x = e.radius;
+                    if (e.x > W - e.radius) e.x = W - e.radius;
+                }
+            }
+
+            function drawEnemy(e) {
+                ctx.save(); ctx.translate(e.x, e.y);
+                const hue = e.color, baseLight = 50;
+                const hpRatio = e.hp / e.maxHp;
+                const flicker = hpRatio < 1 ? 0.7 + 0.3 * Math.sin(gameTime * 30) : 1;
+
+                const glow = ctx.createRadialGradient(0, 0, e.radius * 0.4, 0, 0, e.radius * 2.2);
+                glow.addColorStop(0, `hsla(${hue}, 100%, ${baseLight + 15}%, ${0.5 * flicker})`);
+                glow.addColorStop(1, 'hsla(0,0%,0%,0)');
+                ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, e.radius * 2.2, 0, Math.PI * 2); ctx.fill();
+
+                ctx.fillStyle = `hsla(${hue}, 90%, ${baseLight}%, ${0.9 * flicker})`;
+                ctx.strokeStyle = `hsla(${hue}, 100%, ${baseLight + 25}%, ${flicker})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                switch (e.shape) {
+                    case 'diamond': ctx.moveTo(0, -e.radius); ctx.lineTo(e.radius * 0.75, 0); ctx.lineTo(0, e.radius); ctx.lineTo(-e.radius * 0.75, 0); break;
+                    case 'triangle': ctx.moveTo(0, -e.radius); ctx.lineTo(e.radius * 0.85, e.radius * 0.6); ctx.lineTo(-e.radius * 0.85, e.radius * 0.6); break;
+                    case 'hexagon': for (let j = 0; j < 6; j++) { const a = (Math.PI / 3) * j - Math.PI / 6; const rx = Math.cos(a) * e.radius, ry = Math.sin(a) * e.radius; if (j === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry); } break;
+                    case 'star': for (let j = 0; j < 10; j++) { const a = (Math.PI / 5) * j - Math.PI / 2; const r = j % 2 === 0 ? e.radius : e.radius * 0.45; const rx = Math.cos(a) * r, ry = Math.sin(a) * r; if (j === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry); } break;
+                }
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+
+                if (e.maxHp > 1 && hpRatio < 1) {
+                    const barW = e.radius * 1.6, barH = 4, barY = -e.radius - 10;
+                    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(-barW / 2, barY, barW, barH);
+                    ctx.fillStyle = `hsl(${hue}, 100%, 55%)`; ctx.fillRect(-barW / 2, barY, barW * hpRatio, barH);
+                }
+                ctx.restore();
+            }
+
+            // ================== 道具 ==================
+            const POWERUP_DEFS = [
+                { type: 'heal', color: 340, symbol: '❤', desc: '恢复生命', lifetime: 8 },
+                { type: 'triple', color: 50, symbol: '✦', desc: '三连射', lifetime: 9 },
+                { type: 'rapid', color: 200, symbol: '⚡', desc: '快速射击', lifetime: 9 },
+                { type: 'shield', color: 260, symbol: '🛡', desc: '护盾', lifetime: 10 },
+                { type: 'bomb', color: 30, symbol: '💥', desc: '清屏炸弹', lifetime: 7 },
+            ];
+
+            function spawnPowerUp(x, y) {
+                const roll = Math.random();
+                let def;
+                if (player.lives < player.maxLives && roll < 0.3) def = POWERUP_DEFS[0];
+                else if (roll < 0.45) def = POWERUP_DEFS[Math.floor(Math.random() * POWERUP_DEFS.length)];
+                else if (roll < 0.75) def = POWERUP_DEFS[1 + Math.floor(Math.random() * 3)];
+                else def = POWERUP_DEFS[4];
+                powerUps.push({ x, y, ...def, radius: 13, vy: 1.5 + Math.random() * 1.5, pulse: 0 });
+                if (powerUps.length > 12) powerUps.shift();
+            }
+
+            function updatePowerUps(dt) {
+                for (let i = powerUps.length - 1; i >= 0; i--) {
+                    const pu = powerUps[i];
+                    pu.y += pu.vy * dt * 60;
+                    pu.pulse += dt * 5;
+                    pu.lifetime -= dt;
+                    if (pu.y > H + 30 || pu.lifetime <= 0) powerUps.splice(i, 1);
+                }
+            }
+
+            function drawPowerUp(pu) {
+                const pulse = 1 + Math.sin(pu.pulse) * 0.2, r = pu.radius * pulse;
+                ctx.save(); ctx.translate(pu.x, pu.y);
+                const glow = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 2);
+                glow.addColorStop(0, `hsla(${pu.color}, 100%, 70%, 0.7)`); glow.addColorStop(1, 'hsla(0,0%,0%,0)');
+                ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, r * 2, 0, Math.PI * 2); ctx.fill();
+
+                const bodyGrad = ctx.createRadialGradient(-r * 0.2, -r * 0.2, r * 0.1, 0, 0, r);
+                bodyGrad.addColorStop(0, `hsla(${pu.color}, 90%, 75%, 0.95)`); bodyGrad.addColorStop(1, `hsla(${pu.color}, 80%, 40%, 0.85)`);
+                ctx.fillStyle = bodyGrad; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = `hsla(${pu.color}, 100%, 85%, 0.9)`; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.font = `${r * 1.1}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(pu.symbol, 0, 1);
+                ctx.restore();
+            }
+
+            function collectPowerUp(pu) {
+                spawnParticles(pu.x, pu.y, 18, pu.color, [1, 4], [0.3, 0.7], [1.5, 4]);
+                switch (pu.type) {
+                    case 'heal': player.lives = Math.min(player.maxLives, player.lives + 1); addFloatingText(pu.x, pu.y, '+1 ❤', '#ff6b8a', 1.2); break;
+                    case 'triple': player.tripleShot = true; player.tripleShotTimer = 8; addFloatingText(pu.x, pu.y, '三连射!', '#ffdd57', 1.0); break;
+                    case 'rapid': player.rapidFire = true; player.rapidFireTimer = 10; addFloatingText(pu.x, pu.y, '极速射击!', '#4dc9f6', 1.0); break;
+                    case 'shield': player.shieldActive = true; addFloatingText(pu.x, pu.y, '护盾激活!', '#b388ff', 1.0); break;
+                    case 'bomb': for (const e of enemies) spawnParticles(e.x, e.y, 15, e.color, [2, 6], [0.3, 0.6], [2, 5]); score += enemies.length * 80; enemies = []; flashAlpha = 0.7; triggerShake(8, 0.35); addFloatingText(pu.x, pu.y, '💥清屏!', '#ff9944', 1.5); break;
+                }
+            }
+
+            // ================== 浮动文字 ==================
+            function addFloatingText(x, y, text, color, size) {
+                floatingTexts.push({ x, y, text, color, size: size || 1, life: 1.2, maxLife: 1.2, vy: -2.5 });
+            }
+            function updateFloatingTexts(dt) {
+                for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                    const ft = floatingTexts[i];
+                    ft.life -= dt; ft.y += ft.vy * dt * 60;
+                    if (ft.life <= 0) floatingTexts.splice(i, 1);
+                }
+            }
+            function drawFloatingTexts() {
+                for (const ft of floatingTexts) {
+                    const alpha = ft.life / ft.maxLife, scale = 1 + (1 - alpha) * 0.5;
+                    ctx.save(); ctx.globalAlpha = alpha;
+                    ctx.fillStyle = ft.color;
+                    ctx.font = `bold ${18 * ft.size * scale}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.shadowColor = ft.color; ctx.shadowBlur = 10;
+                    ctx.fillText(ft.text, ft.x, ft.y);
+                    ctx.shadowBlur = 0; ctx.restore();
+                }
+            }
+
+            // ================== 碰撞检测（无无敌） ==================
+            function checkCollisions() {
+                // 子弹 vs 敌人
+                for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                    const b = bullets[bi];
+                    let bulletHit = false;
+                    for (let ei = enemies.length - 1; ei >= 0; ei--) {
+                        const e = enemies[ei];
+                        const dx = b.x - e.x, dy = b.y - e.y;
+                        if (Math.sqrt(dx * dx + dy * dy) < b.radius + e.radius) {
+                            bulletHit = true;
+                            e.hp--;
+                            spawnParticles(b.x, b.y, 5, e.color, [1, 3], [0.1, 0.35], [1, 3]);
+                            if (e.hp <= 0) {
+                                spawnParticles(e.x, e.y, 22, e.color, [2, 7], [0.3, 0.8], [2, 6]);
+                                comboCount++; comboTimer = 1.5;
+                                if (comboCount > maxCombo) maxCombo = comboCount;
+                                const comboBonus = Math.min(comboCount - 1, 15) * 25;
+                                score += e.score + comboBonus;
+                                addFloatingText(e.x, e.y, `+${e.score + comboBonus}${comboCount >= 5 ? ` ${comboCount}连击!` : ''}`,
+                                    comboCount >= 8 ? '#ff4444' : comboCount >= 4 ? '#ffaa00' : '#ffffff',
+                                    comboCount >= 5 ? 1.3 : 1);
+                                if (Math.random() < (e.type === 'tank' ? 0.6 : e.type === 'zigzag' ? 0.25 : 0.12)) spawnPowerUp(e.x, e.y);
+                                enemies.splice(ei, 1);
+                            }
+                            break;
+                        }
+                    }
+                    if (bulletHit) bullets.splice(bi, 1);
+                }
+                // 清理出界子弹
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    if (bullets[i].y < -30 || bullets[i].y > H + 30 || bullets[i].x < -30 || bullets[i].x > W + 30) bullets.splice(i, 1);
+                }
+
+                // 敌人 vs 玩家（无无敌，直接扣血）
+                if (gameState === STATE.PLAYING) {
+                    for (let ei = enemies.length - 1; ei >= 0; ei--) {
+                        const e = enemies[ei];
+                        const dx = player.x - e.x, dy = player.y - e.y;
+                        if (Math.sqrt(dx * dx + dy * dy) < (player.width + player.height) / 4 + e.radius) {
+                            if (player.shieldActive) {
+                                player.shieldActive = false;
+                                spawnParticles(player.x, player.y, 30, 260, [2, 6], [0.3, 0.7], [2, 5]);
+                                addFloatingText(player.x, player.y - 20, '护盾破碎!', '#b388ff', 1.1);
+                            } else {
+                                player.lives--;
+                                comboCount = 0; comboTimer = 0;
+                                spawnParticles(player.x, player.y, 35, 0, [3, 8], [0.4, 0.9], [2, 7]);
+                                triggerShake(12, 0.5); flashAlpha = 0.6;
+                            }
+                            enemies.splice(ei, 1);
+                            if (player.lives <= 0) { endGame(); return; }
+                        }
+                    }
+                }
+
+                // 道具 vs 玩家
+                for (let i = powerUps.length - 1; i >= 0; i--) {
+                    const pu = powerUps[i];
+                    const dx = player.x - pu.x, dy = player.y - pu.y;
+                    if (Math.sqrt(dx * dx + dy * dy) < (player.width + player.height) / 4 + pu.radius) {
+                        collectPowerUp(pu); powerUps.splice(i, 1);
+                    }
+                }
+            }
+
+            function endGame() {
+                gameState = STATE.GAMEOVER;
+                if (score > highScore) { highScore = score; localStorage.setItem('starHunterHighScore', highScore); }
+                spawnParticles(player.x, player.y, 60, 30, [3, 10], [0.5, 1.5], [2, 8]);
+                triggerShake(18, 0.7); flashAlpha = 0.9;
+            }
+
+            function restartGame() { resetGame(); gameState = STATE.PLAYING; }
+
+            // ================== 主循环 ==================
+            let lastTime = performance.now();
+            function gameLoop(timestamp) {
+                let dt = (timestamp - lastTime) / 1000;
+                lastTime = timestamp;
+                if (dt > 0.15) dt = 0.15;
+                if (dt <= 0) dt = 0.016;
+
+                update(dt);
+                render();
+                requestAnimationFrame(gameLoop);
+            }
+
+            function update(dt) {
+                gameTime += dt;
+                if (gameState === STATE.PLAYING) difficultyLevel = 1 + Math.floor(gameTime / 18);
+                if (difficultyLevel > 20) difficultyLevel = 20;
+
+                updateShake(dt);
+                updateStars(dt);
+                updateParticles(dt);
+                updateFloatingTexts(dt);
+
+                if (flashAlpha > 0) flashAlpha = Math.max(0, flashAlpha - dt * 3);
+                if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) comboCount = 0; }
+
+                // 子弹移动
+                for (const b of bullets) {
+                    b.x += b.vx * dt * 60;
+                    b.y += b.vy * dt * 60;
+                }
+
+                if (gameState === STATE.PLAYING) {
+                    const lerpSpeed = 14;
+                    if (mouseOnCanvas) { player.targetX = mouseX; player.targetY = mouseY; }
+                    player.x += (player.targetX - player.x) * Math.min(lerpSpeed * dt, 1);
+                    player.y += (player.targetY - player.y) * Math.min(lerpSpeed * dt, 1);
+                    player.x = Math.max(player.width / 2, Math.min(W - player.width / 2, player.x));
+                    player.y = Math.max(player.height / 2, Math.min(H - player.height / 2, player.y));
+
+                    if (player.tripleShot) { player.tripleShotTimer -= dt; if (player.tripleShotTimer <= 0) player.tripleShot = false; }
+                    if (player.rapidFire) { player.rapidFireTimer -= dt; if (player.rapidFireTimer <= 0) player.rapidFire = false; }
+                    player.engineFlame += dt * 18;
+                    handleShooting(dt);
+                    updateEnemies(dt);
+                    updatePowerUps(dt);
+                    checkCollisions();
+                }
+
+                if (gameState === STATE.GAMEOVER) {
+                    updateEnemies(dt);
+                    for (const e of enemies) e.y += e.speed * 0.5 * dt * 60;
+                    for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i].y > H + 50) enemies.splice(i, 1);
+                    for (let i = bullets.length - 1; i >= 0; i--) if (bullets[i].y < -30 || bullets[i].y > H + 30) bullets.splice(i, 1);
+                    updatePowerUps(dt);
+                }
+                if (gameState === STATE.MENU) {
+                    updateEnemies(dt);
+                    for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i].y > H + 50) enemies.splice(i, 1);
+                    updatePowerUps(dt);
+                }
+            }
+
+            function render() {
+                ctx.clearRect(0, 0, W, H);
+                const bgGrad = ctx.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, W * 0.9);
+                bgGrad.addColorStop(1, '#000010'); bgGrad.addColorStop(0.5, '#020825'); bgGrad.addColorStop(0, '#051040');
+                ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+
+                ctx.save(); ctx.translate(shakeX, shakeY);
+                drawStars();
+                for (const pu of powerUps) drawPowerUp(pu);
+                for (const e of enemies) drawEnemy(e);
+
+                for (const b of bullets) {
+                    const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.radius * 2.5);
+                    grad.addColorStop(0, 'rgba(255,255,200,0.95)');
+                    grad.addColorStop(0.4, 'rgba(255,200,50,0.7)');
+                    grad.addColorStop(1, 'rgba(255,150,0,0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath(); ctx.arc(b.x, b.y, b.radius * 2.5, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#fffef0';
+                    ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2); ctx.fill();
+                }
+
+                drawParticles();
+                if (gameState !== STATE.GAMEOVER || player.lives > 0) drawPlayer();
+                drawFloatingTexts();
+                ctx.restore();
+
+                if (flashAlpha > 0.01) {
+                    ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
+                    ctx.fillRect(0, 0, W, H);
+                }
+                drawUI();
+                if (gameState === STATE.MENU) drawMenuOverlay();
+                else if (gameState === STATE.GAMEOVER) drawGameOverOverlay();
+            }
+
+            function drawPlayer() {
+                ctx.save(); ctx.translate(player.x, player.y);
+                // 不再有无敌闪烁
+
+                if (player.shieldActive) {
+                    const shieldGrad = ctx.createRadialGradient(0, 0, 22, 0, 0, 34);
+                    shieldGrad.addColorStop(0, 'rgba(180,140,255,0.15)');
+                    shieldGrad.addColorStop(0.6, 'rgba(140,100,255,0.4)');
+                    shieldGrad.addColorStop(1, 'rgba(100,60,255,0)');
+                    ctx.fillStyle = shieldGrad; ctx.beginPath(); ctx.arc(0, 2, 34, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = 'rgba(200,170,255,0.7)'; ctx.lineWidth = 3;
+                    ctx.setLineDash([8, 4]); ctx.lineDashOffset = -gameTime * 40;
+                    ctx.beginPath(); ctx.arc(0, 2, 30, 0, Math.PI * 2); ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+
+                const flameLen = 14 + Math.sin(player.engineFlame) * 6;
+                const flameGrad = ctx.createLinearGradient(0, 18, 0, 18 + flameLen);
+                flameGrad.addColorStop(0, 'rgba(100,200,255,0.9)');
+                flameGrad.addColorStop(0.3, 'rgba(60,150,255,0.7)');
+                flameGrad.addColorStop(0.7, 'rgba(20,80,255,0.3)');
+                flameGrad.addColorStop(1, 'rgba(0,20,200,0)');
+                ctx.fillStyle = flameGrad;
+                ctx.beginPath(); ctx.moveTo(-8, 16); ctx.lineTo(8, 16); ctx.lineTo(2, 16 + flameLen); ctx.lineTo(-2, 16 + flameLen); ctx.closePath(); ctx.fill();
+                const flameLen2 = 8 + Math.cos(player.engineFlame * 1.7) * 4;
+                ctx.fillStyle = flameGrad;
+                ctx.beginPath(); ctx.moveTo(-4, 14); ctx.lineTo(4, 14); ctx.lineTo(1, 14 + flameLen2); ctx.lineTo(-1, 14 + flameLen2); ctx.closePath(); ctx.fill();
+
+                const shipGrad = ctx.createLinearGradient(0, -20, 0, 18);
+                shipGrad.addColorStop(0, '#e8f4ff'); shipGrad.addColorStop(0.3, '#80c8ff');
+                shipGrad.addColorStop(0.7, '#2880d0'); shipGrad.addColorStop(1, '#104080');
+                ctx.fillStyle = shipGrad;
+                ctx.beginPath();
+                ctx.moveTo(0, -22);
+                ctx.bezierCurveTo(14, -10, 20, 6, 16, 16);
+                ctx.lineTo(-16, 16);
+                ctx.bezierCurveTo(-20, 6, -14, -10, 0, -22);
+                ctx.closePath(); ctx.fill();
+                ctx.strokeStyle = 'rgba(200,230,255,0.8)'; ctx.lineWidth = 2; ctx.stroke();
+
+                ctx.fillStyle = ctx.createRadialGradient(0, -6, 2, 0, -2, 8);
+                ctx.fillStyle = 'rgba(200,240,255,0.9)';
+                ctx.beginPath(); ctx.ellipse(0, -2, 6, 10, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+
+            function drawUI() {
+                ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px "PingFang SC","Microsoft YaHei",sans-serif'; ctx.textAlign = 'left';
+                ctx.shadowColor = 'rgba(100,180,255,0.6)'; ctx.shadowBlur = 8;
+                ctx.fillText(`⭐ ${Math.floor(score).toLocaleString()}`, 20, 38); ctx.shadowBlur = 0;
+
+                ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+                ctx.fillText(`最高: ${Math.floor(highScore).toLocaleString()}`, 20, 58);
+
+                ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = 'bold 14px "PingFang SC","Microsoft YaHei",sans-serif'; ctx.textAlign = 'right';
+                ctx.fillText(`波次 ${difficultyLevel}`, W - 20, 36);
+
+                if (comboCount >= 3 && gameState === STATE.PLAYING) {
+                    const comboAlpha = Math.min(1, comboTimer / 0.5);
+                    const comboScale = 1 + Math.min(comboCount * 0.04, 0.5);
+                    ctx.save(); ctx.globalAlpha = comboAlpha;
+                    ctx.fillStyle = comboCount >= 10 ? '#ff4444' : comboCount >= 6 ? '#ff9944' : '#ffcc44';
+                    ctx.font = `bold ${Math.floor(28 * comboScale)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 15;
+                    ctx.fillText(`${comboCount} 连击!`, W / 2, 50);
+                    ctx.shadowBlur = 0; ctx.restore();
+                }
+
+                const heartSize = 16, heartStartX = W - 20 - player.maxLives * (heartSize + 6);
+                for (let i = 0; i < player.maxLives; i++) {
+                    const hx = heartStartX + i * (heartSize + 6);
+                    ctx.fillStyle = i < player.lives ? '#ff4060' : 'rgba(255,255,255,0.2)';
+                    ctx.font = `${heartSize}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('❤', hx + heartSize / 2, 60);
+                }
+
+                let statusY = 80;
+                ctx.textAlign = 'right'; ctx.font = 'bold 12px "PingFang SC","Microsoft YaHei",sans-serif';
+                if (player.shieldActive) { ctx.fillStyle = '#c8a8ff'; ctx.fillText('🛡 护盾', W - 20, statusY); statusY += 18; }
+                if (player.tripleShot) { ctx.fillStyle = '#ffdd57'; ctx.fillText(`✦ 三连射 ${player.tripleShotTimer.toFixed(1)}s`, W - 20, statusY); statusY += 18; }
+                if (player.rapidFire) { ctx.fillStyle = '#4dc9f6'; ctx.fillText(`⚡ 速射 ${player.rapidFireTimer.toFixed(1)}s`, W - 20, statusY); statusY += 18; }
+                // 不再显示无敌时间
+            }
+
+            function drawMenuOverlay() {
+                ctx.fillStyle = 'rgba(0,0,10,0.7)'; ctx.fillRect(0, 0, W, H);
+                const glow = ctx.createRadialGradient(W / 2, H * 0.35, 30, W / 2, H * 0.35, Math.max(W, H) * 0.5);
+                glow.addColorStop(0, 'rgba(100,180,255,0.25)'); glow.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${Math.min(52, W/12)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.shadowColor = 'rgba(100,180,255,0.8)'; ctx.shadowBlur = 25;
+                ctx.fillText('🛸 星际猎手', W / 2, H * 0.28); ctx.shadowBlur = 0;
+
+                ctx.fillStyle = 'rgba(200,220,255,0.8)';
+                ctx.font = `${Math.min(18, W/35)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.fillText('无无敌 · 极速射击', W / 2, H * 0.28 + Math.min(40, W/20));
+
+                const infoY = H * 0.45;
+                const infoGap = Math.min(28, W/28);
+                ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                ctx.font = `${Math.min(16, W/40)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                const instructions = [
+                    '🖱 鼠标 / 👆 触屏 控制飞船移动',
+                    '🔫 极速自动射击，子弹速度 30',
+                    '🔥 连续击杀获得连击加分',
+                    '💎 击败敌人掉落随机道具',
+                    '❤ 5条命，无无敌，小心走位！',
+                ];
+                for (let i = 0; i < instructions.length; i++) {
+                    ctx.fillText(instructions[i], W / 2, infoY + i * infoGap);
+                }
+
+                const btnY = H * 0.75;
+                const btnW = Math.min(220, W * 0.4), btnH = Math.min(55, H * 0.08);
+                const pulse = 1 + Math.sin(gameTime * 3) * 0.06;
+                ctx.save(); ctx.translate(W / 2, btnY); ctx.scale(pulse, pulse);
+                const btnGrad = ctx.createLinearGradient(0, -btnH / 2, 0, btnH / 2);
+                btnGrad.addColorStop(0, '#4a90ff'); btnGrad.addColorStop(1, '#2060d0');
+                ctx.fillStyle = btnGrad;
+                ctx.beginPath(); ctx.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, btnH / 2); ctx.fill();
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#ffffff'; ctx.font = `bold ${Math.min(22, W/28)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.fillText('🚀  开 始 游 戏', 0, 5);
+                ctx.restore();
+
+                ctx.fillStyle = 'rgba(255,255,255,0.45)';
+                ctx.font = `${Math.min(13, W/50)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.fillText('点击屏幕任意位置开始', W / 2, btnY + btnH / 2 + 28);
+
+                if (highScore > 0) {
+                    ctx.fillStyle = 'rgba(255,215,0,0.8)';
+                    ctx.font = `bold ${Math.min(16, W/38)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                    ctx.fillText(`🏆 历史最高分: ${Math.floor(highScore).toLocaleString()}`, W / 2, H * 0.9);
+                }
+            }
+
+            function drawGameOverOverlay() {
+                ctx.fillStyle = 'rgba(0,0,5,0.75)'; ctx.fillRect(0, 0, W, H);
+                const glow = ctx.createRadialGradient(W / 2, H * 0.35, 20, W / 2, H * 0.35, Math.max(W, H) * 0.5);
+                glow.addColorStop(0, 'rgba(255,100,80,0.2)'); glow.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ff6040';
+                ctx.font = `bold ${Math.min(46, W/14)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.shadowColor = 'rgba(255,80,40,0.7)'; ctx.shadowBlur = 20;
+                ctx.fillText('💫 游戏结束', W / 2, H * 0.28); ctx.shadowBlur = 0;
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${Math.min(30, W/20)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.fillText(`得分: ${Math.floor(score).toLocaleString()}`, W / 2, H * 0.4);
+
+                if (score >= highScore && score > 0) {
+                    ctx.fillStyle = '#ffd700';
+                    ctx.font = `bold ${Math.min(20, W/28)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                    ctx.fillText('🏆 新最高记录! 🏆', W / 2, H * 0.4 + Math.min(40, W/18));
+                } else {
+                    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                    ctx.font = `${Math.min(16, W/35)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                    ctx.fillText(`最高分: ${Math.floor(highScore).toLocaleString()}`, W / 2, H * 0.4 + Math.min(38, W/18));
+                }
+
+                ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                ctx.font = `${Math.min(15, W/38)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.fillText(`最大连击: ${maxCombo}  |  到达波次: ${difficultyLevel}`, W / 2, H * 0.52);
+
+                const btnY = H * 0.65;
+                const btnW = Math.min(200, W * 0.38), btnH = Math.min(50, H * 0.07);
+                ctx.save(); ctx.translate(W / 2, btnY);
+                const btnGrad = ctx.createLinearGradient(0, -btnH / 2, 0, btnH / 2);
+                btnGrad.addColorStop(0, '#ff6040'); btnGrad.addColorStop(1, '#c03020');
+                ctx.fillStyle = btnGrad;
+                ctx.beginPath(); ctx.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, btnH / 2); ctx.fill();
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${Math.min(20, W/30)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.fillText('🔄  再来一局', 0, 5);
+                ctx.restore();
+
+                ctx.fillStyle = 'rgba(255,255,255,0.45)';
+                ctx.font = `${Math.min(13, W/50)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+                ctx.fillText('点击屏幕重新开始', W / 2, btnY + btnH / 2 + 26);
+            }
+
+            // ================== 交互事件 ==================
+            canvas.addEventListener('click', (e) => {
+                if (gameState === STATE.MENU) {
+                    resetGame(); gameState = STATE.PLAYING;
+                    mouseX = e.clientX; mouseY = e.clientY; mouseOnCanvas = true;
+                } else if (gameState === STATE.GAMEOVER) {
+                    restartGame();
+                    mouseX = e.clientX; mouseY = e.clientY; mouseOnCanvas = true;
+                }
+            });
+
+            window.addEventListener('keydown', (e) => {
+                if (e.code === 'Space' || e.code === 'Enter') {
+                    if (gameState === STATE.MENU) { resetGame(); gameState = STATE.PLAYING; }
+                    else if (gameState === STATE.GAMEOVER) restartGame();
+                    e.preventDefault();
+                }
+            });
+
+            function spawnMenuEnemies() {
+                if (gameState === STATE.MENU && enemies.length < 6) spawnEnemy();
+                setTimeout(spawnMenuEnemies, 800 + Math.random() * 1200);
+            }
+            spawnMenuEnemies();
+
+            mouseX = W / 2; mouseY = H * 0.7;
+            player.x = W / 2; player.y = H * 0.7;
+            player.targetX = W / 2; player.targetY = H * 0.7;
+
+            console.log('🛸 星际猎手 无无敌版已启动！');
+            console.log('  - 没有无敌时间，受伤立即扣血');
+            console.log('  - 点击屏幕或按空格开始');
+
+            requestAnimationFrame(gameLoop);
+        })();
+    </script>
+</body>
+</html>
